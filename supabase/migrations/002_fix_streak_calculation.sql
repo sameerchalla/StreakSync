@@ -4,6 +4,12 @@
 -- This migration fixes the streak calculation by adding proper triggers
 -- and helper functions to update streaks on check-in events.
 
+-- Drop any existing overloads first (idempotent: safe to re-run, handles 003's 2-arg versions)
+drop function if exists public.calculate_user_current_streak(uuid);
+drop function if exists public.calculate_user_current_streak(uuid, date);
+drop function if exists public.calculate_room_current_streak(uuid);
+drop function if exists public.calculate_room_current_streak(uuid, date);
+
 -- ============================================
 -- 1. Helper function to calculate user's current streak from check_ins
 -- ============================================

@@ -53,9 +53,12 @@ drop trigger if exists update_streaks_on_checkin on public.check_ins;
 drop trigger if exists update_room_streaks_on_checkin on public.check_ins;
 drop function if exists public.update_profile_streaks();
 drop function if exists public.update_room_streaks();
+drop function if exists public.calculate_user_streak(uuid);
 drop function if exists public.calculate_user_current_streak(uuid);
+drop function if exists public.calculate_user_current_streak(uuid, date);
 drop function if exists public.calculate_user_longest_streak(uuid);
 drop function if exists public.calculate_room_current_streak(uuid);
+drop function if exists public.calculate_room_current_streak(uuid, date);
 
 -- ============================================
 -- 1. Add quorum column to rooms (PD2).
