@@ -162,6 +162,19 @@ export function Auth() {
     }
   }
 
+  // Compute form validity based on active mode
+  const isFormValid = (() => {
+    if (mode === 'signup') {
+      const sanitizedUsername = username.toLowerCase().replace(/[^a-z0-9_]/g, '')
+      return (
+        sanitizedUsername.length >= 3 &&
+        email.length > 0 &&
+        password.length >= 6
+      )
+    }
+    return email.length > 0 && password.length >= 6
+  })()
+
   return (
     <div className="min-h-screen bg-background flex">
       {/* Left Panel - Branding */}
@@ -306,8 +319,8 @@ export function Auth() {
 
             <button
               type="submit"
-              disabled={loading}
-              className="w-full py-3 bg-gradient-accent text-white font-semibold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+              disabled={loading || !isFormValid}
+              className="w-full py-3 bg-gradient-accent text-white font-semibold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {loading && <Loader2 className="w-5 h-5 animate-spin" />}
               {mode === 'signup' ? 'Create Account' : 'Sign In'}

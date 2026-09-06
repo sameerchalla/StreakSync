@@ -19,6 +19,7 @@ import {
 import { getStreakFireEmoji, getStreakMilestone, calculateStreak, calculateLongestStreak } from '../lib/streakUtils'
 import { getBrowserTimezone, todayInTimezone } from '../lib/timezone'
 import { clsx } from 'clsx'
+import { toast } from 'sonner'
 
 export function RoomDetail() {
   const { id } = useParams<{ id: string }>()
@@ -239,6 +240,7 @@ export function RoomDetail() {
       queryClient.invalidateQueries({ queryKey: ['joined-rooms'] })
       queryClient.invalidateQueries({ queryKey: ['user-rooms'] })
       queryClient.invalidateQueries({ queryKey: ['room-member-count', id] })
+      toast.success(`Joined ${displayRoom?.name || 'room'}! You're now a member.`)
     },
   })
 
@@ -287,6 +289,7 @@ export function RoomDetail() {
       queryClient.invalidateQueries({ queryKey: ['today-checkins'] })
       queryClient.invalidateQueries({ queryKey: ['joined-rooms'] })
       queryClient.invalidateQueries({ queryKey: ['is-member', id] })
+      toast.success(`Checked in to ${displayRoom?.name || 'room'}! 🔥`)
       setShowConfetti(true)
       setTimeout(() => setShowConfetti(false), 3000)
     },
@@ -464,10 +467,15 @@ export function RoomDetail() {
               <CheckCircle className="w-8 h-8 mx-auto mb-2" />
               <span>Checked In!</span>
             </>
-          ) : (
+          ) : isMember ? (
             <>
               <Flame className="w-8 h-8 mx-auto mb-2 animate-fire-pulse" />
               <span>Check In Today</span>
+            </>
+          ) : (
+            <>
+              <Plus className="w-8 h-8 mx-auto mb-2" />
+              <span>Join & Check In</span>
             </>
           )}
         </button>

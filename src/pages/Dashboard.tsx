@@ -15,6 +15,7 @@ import {
   Sparkles,
   Activity,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { calculateLevel, getStreakFireEmoji, calculateStreak, calculateLongestStreak } from '../lib/streakUtils'
 import { getBrowserTimezone, todayInTimezone } from '../lib/timezone'
 
@@ -193,6 +194,12 @@ export function Dashboard() {
       // _streak functions will compute for the trigger.
       const tz = profile?.timezone || getBrowserTimezone()
       const today = todayInTimezone(tz)
+
+      // Note: The date is computed internally from todayInTimezone(tz),
+      // so it's inherently the current date and cannot be in the future.
+      // Future-date validation is enforced in Habits.tsx where the date
+      // is passed as a parameter that could be manipulated.
+
       const { error } = await supabase.from('check_ins').upsert(
         {
           user_id: user?.id,
@@ -210,6 +217,7 @@ export function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['user-room-streaks'] })
       queryClient.invalidateQueries({ queryKey: ['last7days-checkins'] })
       queryClient.invalidateQueries({ queryKey: ['profile'] })
+      toast.success('Checked in! Keep up the streak! 🔥')
     },
   })
 

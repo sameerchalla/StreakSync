@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from './lib/supabase'
 import { useAuthStore } from './store/authStore'
 import { Layout } from './components/Layout'
+import { ToastProvider } from './components/ToastProvider'
 import { Landing } from './pages/Landing'
 import { Auth } from './pages/Auth'
 import { Dashboard } from './pages/Dashboard'
@@ -79,6 +80,7 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <ToastProvider />
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Landing />} />

@@ -11,6 +11,7 @@ import {
   Loader2,
   TrendingUp,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   LineChart,
   Line,
@@ -75,6 +76,12 @@ export function Habits() {
   // Log habit mutation
   const logMutation = useMutation({
     mutationFn: async ({ habitId, date }: { habitId: string; date: string }) => {
+      // Validate: prevent future dates
+      const tz = profile?.timezone || 'UTC'
+      const todayStr = todayInTimezone(tz)
+      if (date > todayStr) {
+        throw new Error('Cannot log check-ins for future dates.')
+      }
       const { error } = await supabase.from('habit_logs').upsert(
         {
           habit_id: habitId,
@@ -88,8 +95,14 @@ export function Habits() {
       )
       if (error) throw error
     },
+    onError: (error: Error) => {
+      if (error.message.includes('future date')) {
+        toast.error('Cannot log check-ins for future dates.')
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['habits'] })
+      toast.success('Habit completed! Keep the streak going! 🔥')
     },
   })
 
@@ -101,6 +114,7 @@ export function Habits() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['habits'] })
+      toast.success('Habit deleted')
     },
   })
 
@@ -181,10 +195,12 @@ export function Habits() {
             {(() => {
               if (displayHabits.length === 0) return '0%'
               // Calculate possible slots based on days since habit creation (max 30)
+              // Use timezone-aware today for consistent date calculation
               const possibleSlots = displayHabits.reduce((sum: number, h: any) => {
                 const createdAt = new Date(h.created_at)
-                const today = new Date()
-                const daysSinceCreation = Math.floor((today.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24))
+                // Parse the timezone-aware today string back to a Date for calculation
+                const todayDate = new Date(today + 'T00:00:00')
+                const daysSinceCreation = Math.floor((todayDate.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24))
                 const daysToCount = Math.min(Math.max(daysSinceCreation + 1, 0), 30)
                 return sum + daysToCount
               }, 0)
@@ -349,6 +365,7 @@ function AddHabitModal({ onClose }: { onClose: () => void }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['habits'] })
       onClose()
+      toast.success('Habit created successfully!')
     },
   })
 
