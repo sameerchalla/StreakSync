@@ -246,6 +246,9 @@ create index if not exists idx_habitlogs_user_date
 -- 7. VIEWS for common queries
 -- ============================================
 
+-- Drop existing view first (required for idempotent re-runs)
+drop view if exists public.rooms_with_stats cascade;
+
 -- View: Room with member count
 create or replace view public.rooms_with_stats as
 select
