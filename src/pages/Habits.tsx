@@ -38,6 +38,7 @@ export function Habits() {
   const user = useAuthStore((state) => state.user)
   const queryClient = useQueryClient()
   const [showAddModal, setShowAddModal] = useState(false)
+  const [habitToDelete, setHabitToDelete] = useState<string | null>(null)
 
   // Fetch user's profile for timezone
   const { data: profile } = useQuery({
@@ -292,11 +293,7 @@ export function Habits() {
                       )}
                     </button>
                     <button
-                      onClick={() => {
-                        if (confirm('Delete this habit?')) {
-                          deleteMutation.mutate(habit.id)
-                        }
-                      }}
+                      onClick={() => setHabitToDelete(habit.id)}
                       className="p-2 text-muted hover:text-danger transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -341,6 +338,61 @@ export function Habits() {
 
       {/* Add Habit Modal */}
       {showAddModal && <AddHabitModal onClose={() => setShowAddModal(false)} />}
+
+      {/* Delete Habit Confirmation Modal */}
+      {habitToDelete && (
+        <DeleteHabitModal
+          onClose={() => setHabitToDelete(null)}
+          onConfirm={() => {
+            deleteMutation.mutate(habitToDelete)
+            setHabitToDelete(null)
+          }}
+          isPending={deleteMutation.isPending}
+        />
+      )}
+    </div>
+  )
+}
+
+function DeleteHabitModal({
+  onClose,
+  onConfirm,
+  isPending,
+}: {
+  onClose: () => void
+  onConfirm: () => void
+  isPending: boolean
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80">
+      <div className="w-full max-w-sm bg-[#0D0D0F] rounded-2xl border border-[#2A2A32] p-6">
+        <div className="text-center mb-6">
+          <div className="w-12 h-12 rounded-full bg-danger/20 flex items-center justify-center mx-auto mb-4">
+            <Trash2 className="w-6 h-6 text-danger" />
+          </div>
+          <h2 className="text-lg font-bold text-text mb-2">Delete Habit?</h2>
+          <p className="text-sm text-muted">
+            This will permanently delete this habit and all its history. This action cannot be undone.
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={isPending}
+            className="flex-1 py-2.5 bg-[#1A1A1E] border border-[#2A2A32] rounded-lg text-text font-medium hover:bg-[#2A2A32] transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={isPending}
+            className="flex-1 py-2.5 bg-danger text-white font-semibold rounded-lg hover:bg-danger/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+            Delete
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

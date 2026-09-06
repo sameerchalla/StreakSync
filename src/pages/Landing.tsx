@@ -30,16 +30,16 @@ const features = [
 ]
 
 const testimonials = [
-  { name: 'Alex Chen', role: 'Software Engineer', text: 'My streak is 47 days. I have never stuck with a habit app this long.' },
-  { name: 'Sarah Kim', role: 'Product Designer', text: 'The social pressure is real. I check in now because I do not want to let the room down.' },
-  { name: 'Marcus Johnson', role: 'Student', text: 'Finally hit 100 days of code. The room kept me going when I wanted to quit.' },
+  { name: 'Beta Tester', role: 'Hackathon Participant', text: 'The room feature kept me accountable during a 48-hour build sprint. Way better than going solo.' },
+  { name: 'Early Adopter', role: 'Live Beta User', text: 'Set up a streak room with my study group. We actually showed up every day this week.' },
+  { name: 'Demo Viewer', role: 'Hackathon Preview', text: 'The leaderboard is surprisingly addictive. Already planning to build a room for my gym habit.' },
 ]
 
 const socialProof = [
-  { value: '10,000+', label: 'Active Streakers' },
-  { value: '500+', label: 'Habit Rooms' },
-  { value: '2M+', label: 'Check-ins Logged' },
-  { value: '85%', label: '30-Day Retention' },
+  { value: 'Beta', label: 'Live Preview' },
+  { value: 'Hackathon', label: 'Demo Mode' },
+  { value: 'Early', label: 'Access' },
+  { value: 'v1.1', label: 'Release' },
 ]
 
 export function Landing() {
@@ -155,10 +155,10 @@ export function Landing() {
           {/* Badge */}
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-border mb-8" style={{ backgroundColor: 'rgba(22, 22, 26, 0.8)' }}>
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
             </span>
-            <span className="text-sm text-muted">2,847 people checked in today</span>
+            <span className="text-sm text-muted">Hackathon Preview — Live Beta</span>
           </div>
 
           {/* Headline */}
@@ -294,7 +294,8 @@ export function Landing() {
       {/* Testimonials */}
       <section className="relative z-10 container-page pb-24">
         <div className="text-center mb-12">
-          <h2 className="text-3xl font-bold mb-4">Real people, real streaks</h2>
+          <h2 className="text-3xl font-bold mb-4">Early feedback</h2>
+          <p className="text-sm text-muted">From beta testers and hackathon participants</p>
         </div>
         <div className="grid md:grid-cols-3 gap-5 max-w-4xl mx-auto">
           {testimonials.map((t, idx) => (
@@ -334,7 +335,7 @@ export function Landing() {
               Your streak starts today
             </h2>
             <p className="text-muted text-lg max-w-md mx-auto mb-8">
-              Join thousands who stopped relying on willpower and started relying on community.
+              Built during a hackathon. Join the early beta and help shape the future of social habit tracking.
             </p>
             <Link
               to="/auth"
@@ -357,14 +358,29 @@ export function Landing() {
 
       {/* Footer */}
       <footer className="relative z-10 border-t border-border" style={{ backdropFilter: 'blur(12px)', backgroundColor: 'rgba(13, 13, 15, 0.8)' }}>
-        <div className="container-page py-8 text-center">
-          <div className="flex items-center justify-center gap-2 mb-2">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 max-w-7xl mx-auto px-6 py-6">
+          {/* Left side - Brand */}
+          <div className="flex items-center gap-2">
             <div className="w-5 h-5 rounded bg-gradient-to-br from-accent to-warning flex items-center justify-center">
               <Flame className="w-3 h-3 text-white" />
             </div>
             <span className="font-bold text-text text-sm">StreakSync</span>
+            <span className="text-muted text-xs">·</span>
+            <span className="text-xs text-muted">Social Habit Accountability Platform</span>
           </div>
-          <p className="text-xs text-muted">Social Habit Accountability Platform</p>
+
+          {/* Right side - Credit */}
+          <p className="text-xs text-muted">
+            Built with <span className="text-danger">❤️</span> by{' '}
+            <a
+              href="https://www.linkedin.com/in/sameer-challa/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:text-primary/80 underline-offset-2 hover:underline transition-colors"
+            >
+              Sameer Challa
+            </a>
+          </p>
         </div>
       </footer>
     </div>

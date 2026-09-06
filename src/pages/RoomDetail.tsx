@@ -443,6 +443,16 @@ export function RoomDetail() {
           <span>{Math.round(progress)}% complete</span>
           <span>Goal: {displayRoom.streak_goal || 100} days</span>
         </div>
+
+        {/* Empty state for new rooms with no check-ins */}
+        {roomCurrentStreak === 0 && roomCheckIns.length === 0 && (
+          <div className="mt-4 p-4 bg-background rounded-lg border border-border text-center">
+            <Flame className="w-6 h-6 text-muted mx-auto mb-2" />
+            <p className="text-sm text-muted">
+              No check-ins yet today. Be the first to start the streak!
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Check-in Section */}
