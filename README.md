@@ -150,7 +150,3 @@ streakSync/
 | Dates | date-fns |
 
 ---
-
-## License
-
-MIT
