@@ -11,6 +11,8 @@
 
 -- Drop the overly permissive public SELECT policy
 DROP POLICY IF EXISTS "Check-ins are viewable by everyone" ON public.check_ins;
+-- Drop the new policy name if re-running this migration
+DROP POLICY IF EXISTS "check_ins_select_policy" ON public.check_ins;
 
 -- Create a scoped SELECT policy:
 -- - Users can view their own check-ins
@@ -31,12 +33,14 @@ CREATE POLICY "check_ins_select_policy" ON public.check_ins
 
 -- Ensure INSERT is restricted to own check-ins (already correct, reinforcing)
 DROP POLICY IF EXISTS "Users can create their own check-ins" ON public.check_ins;
+DROP POLICY IF EXISTS "check_ins_insert_policy" ON public.check_ins;
 CREATE POLICY "check_ins_insert_policy" ON public.check_ins
   FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
 -- Ensure UPDATE is restricted to own check-ins (already correct, reinforcing)
 DROP POLICY IF EXISTS "Users can update their own check-ins" ON public.check_ins;
+DROP POLICY IF EXISTS "check_ins_update_policy" ON public.check_ins;
 CREATE POLICY "check_ins_update_policy" ON public.check_ins
   FOR UPDATE
   USING (auth.uid() = user_id);
@@ -47,6 +51,8 @@ CREATE POLICY "check_ins_update_policy" ON public.check_ins
 
 -- Drop the overly permissive public SELECT policy
 DROP POLICY IF EXISTS "Room members are viewable by everyone" ON public.room_members;
+-- Drop the new policy name if re-running this migration
+DROP POLICY IF EXISTS "room_members_select_policy" ON public.room_members;
 
 -- Create a scoped SELECT policy:
 -- - Users can view their own memberships
@@ -64,18 +70,21 @@ CREATE POLICY "room_members_select_policy" ON public.room_members
 
 -- Ensure INSERT is restricted (already correct, reinforcing)
 DROP POLICY IF EXISTS "Users can join rooms" ON public.room_members;
+DROP POLICY IF EXISTS "room_members_insert_policy" ON public.room_members;
 CREATE POLICY "room_members_insert_policy" ON public.room_members
   FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
 -- Ensure UPDATE is restricted (already correct, reinforcing)
 DROP POLICY IF EXISTS "Users can leave rooms" ON public.room_members;
+DROP POLICY IF EXISTS "room_members_update_policy" ON public.room_members;
 CREATE POLICY "room_members_update_policy" ON public.room_members
   FOR UPDATE
   USING (auth.uid() = user_id);
 
 -- Ensure DELETE is restricted (already correct, reinforcing)
 DROP POLICY IF EXISTS "Users can delete their memberships" ON public.room_members;
+DROP POLICY IF EXISTS "room_members_delete_policy" ON public.room_members;
 CREATE POLICY "room_members_delete_policy" ON public.room_members
   FOR DELETE
   USING (auth.uid() = user_id);
@@ -86,6 +95,8 @@ CREATE POLICY "room_members_delete_policy" ON public.room_members
 
 -- Drop the overly permissive public SELECT policy
 DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON public.profiles;
+-- Drop the new policy name if re-running this migration
+DROP POLICY IF EXISTS "profiles_select_policy" ON public.profiles;
 
 -- Create a SELECT policy requiring authentication:
 -- This preserves leaderboard and member list queries while
@@ -96,12 +107,14 @@ CREATE POLICY "profiles_select_policy" ON public.profiles
 
 -- Ensure UPDATE is restricted to own profile (already correct, reinforcing)
 DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_update_policy" ON public.profiles;
 CREATE POLICY "profiles_update_policy" ON public.profiles
   FOR UPDATE
   USING (auth.uid() = id);
 
 -- Ensure INSERT is restricted to own profile (already correct, reinforcing)
 DROP POLICY IF EXISTS "Users can insert their own profile" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_insert_policy" ON public.profiles;
 CREATE POLICY "profiles_insert_policy" ON public.profiles
   FOR INSERT
   WITH CHECK (auth.uid() = id);

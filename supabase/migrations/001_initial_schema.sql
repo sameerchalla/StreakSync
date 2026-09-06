@@ -23,14 +23,17 @@ create table if not exists public.profiles (
 
 alter table public.profiles enable row level security;
 
+drop policy if exists "Public profiles are viewable by everyone" on public.profiles;
 create policy "Public profiles are viewable by everyone"
   on public.profiles for select
   using ( true );
 
+drop policy if exists "Users can update their own profile" on public.profiles;
 create policy "Users can update their own profile"
   on public.profiles for update
   using ( auth.uid() = id );
 
+drop policy if exists "Users can insert their own profile" on public.profiles;
 create policy "Users can insert their own profile"
   on public.profiles for insert
   with check ( auth.uid() = id );
@@ -80,18 +83,22 @@ create table if not exists public.rooms (
 
 alter table public.rooms enable row level security;
 
+drop policy if exists "Public rooms are viewable by everyone" on public.rooms;
 create policy "Public rooms are viewable by everyone"
   on public.rooms for select
   using ( is_public = true or auth.uid() = created_by );
 
+drop policy if exists "Authenticated users can create rooms" on public.rooms;
 create policy "Authenticated users can create rooms"
   on public.rooms for insert
   with check ( auth.uid() = created_by );
 
+drop policy if exists "Room creators can update their rooms" on public.rooms;
 create policy "Room creators can update their rooms"
   on public.rooms for update
   using ( auth.uid() = created_by );
 
+drop policy if exists "Room creators can delete their rooms" on public.rooms;
 create policy "Room creators can delete their rooms"
   on public.rooms for delete
   using ( auth.uid() = created_by );
@@ -110,18 +117,22 @@ create table if not exists public.room_members (
 
 alter table public.room_members enable row level security;
 
+drop policy if exists "Room members are viewable by everyone" on public.room_members;
 create policy "Room members are viewable by everyone"
   on public.room_members for select
   using ( true );
 
+drop policy if exists "Users can join rooms" on public.room_members;
 create policy "Users can join rooms"
   on public.room_members for insert
   with check ( auth.uid() = user_id );
 
+drop policy if exists "Users can leave rooms" on public.room_members;
 create policy "Users can leave rooms"
   on public.room_members for update
   using ( auth.uid() = user_id );
 
+drop policy if exists "Users can delete their memberships" on public.room_members;
 create policy "Users can delete their memberships"
   on public.room_members for delete
   using ( auth.uid() = user_id );
@@ -142,14 +153,17 @@ create table if not exists public.check_ins (
 
 alter table public.check_ins enable row level security;
 
+drop policy if exists "Check-ins are viewable by everyone" on public.check_ins;
 create policy "Check-ins are viewable by everyone"
   on public.check_ins for select
   using ( true );
 
+drop policy if exists "Users can create their own check-ins" on public.check_ins;
 create policy "Users can create their own check-ins"
   on public.check_ins for insert
   with check ( auth.uid() = user_id );
 
+drop policy if exists "Users can update their own check-ins" on public.check_ins;
 create policy "Users can update their own check-ins"
   on public.check_ins for update
   using ( auth.uid() = user_id );
@@ -176,18 +190,22 @@ create table if not exists public.habits (
 
 alter table public.habits enable row level security;
 
+drop policy if exists "Users can view their own habits" on public.habits;
 create policy "Users can view their own habits"
   on public.habits for select
   using ( auth.uid() = user_id );
 
+drop policy if exists "Users can create their own habits" on public.habits;
 create policy "Users can create their own habits"
   on public.habits for insert
   with check ( auth.uid() = user_id );
 
+drop policy if exists "Users can update their own habits" on public.habits;
 create policy "Users can update their own habits"
   on public.habits for update
   using ( auth.uid() = user_id );
 
+drop policy if exists "Users can delete their own habits" on public.habits;
 create policy "Users can delete their own habits"
   on public.habits for delete
   using ( auth.uid() = user_id );
@@ -206,14 +224,17 @@ create table if not exists public.habit_logs (
 
 alter table public.habit_logs enable row level security;
 
+drop policy if exists "Users can view their own habit logs" on public.habit_logs;
 create policy "Users can view their own habit logs"
   on public.habit_logs for select
   using ( auth.uid() = user_id );
 
+drop policy if exists "Users can create their own habit logs" on public.habit_logs;
 create policy "Users can create their own habit logs"
   on public.habit_logs for insert
   with check ( auth.uid() = user_id );
 
+drop policy if exists "Users can update their own habit logs" on public.habit_logs;
 create policy "Users can update their own habit logs"
   on public.habit_logs for update
   using ( auth.uid() = user_id );
