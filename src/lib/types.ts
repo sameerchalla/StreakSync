@@ -26,6 +26,7 @@ export interface Room {
   created_by: string
   current_room_streak: number
   max_room_streak: number
+  streak_min_members: number  // quorum for room streak (default 1)
   created_at: string
   member_count?: number
   user_streak?: number

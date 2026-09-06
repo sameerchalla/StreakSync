@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { format } from 'date-fns'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../store/authStore'
 import {
@@ -12,10 +11,16 @@ import {
   Loader2,
   Lock,
 } from 'lucide-react'
-import { getStreakFireEmoji } from '../lib/streakUtils'
+import { getStreakFireEmoji, calculateStreak } from '../lib/streakUtils'
 import { clsx } from 'clsx'
 
-const formatYmd = (d: Date) => format(d, 'yyyy-MM-dd')
+// Helper to format date as yyyy-MM-dd (local timezone)
+const formatYmd = (d: Date): string => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 
 export function Rooms() {
   const user = useAuthStore((state) => state.user)
@@ -105,7 +110,36 @@ export function Rooms() {
     enabled: !!user,
   })
 
-  // (removed unused variable)
+  // Fetch room check-ins for room streak calculation
+  const { data: roomCheckIns = {} } = useQuery({
+    queryKey: ['room-checkins-for-streak'],
+    queryFn: async () => {
+      if (!user) return {}
+      const { data, error } = await supabase
+        .from('check_ins')
+        .select('room_id, check_in_date')
+
+      if (error) {
+        console.error('Room checkins query error:', error)
+        return {}
+      }
+
+      const result: Record<string, string[]> = {}
+      ;(data || []).forEach((c: any) => {
+        if (!result[c.room_id]) result[c.room_id] = []
+        result[c.room_id].push(c.check_in_date)
+      })
+      return result
+    },
+    enabled: !!user,
+  })
+
+  // Helper: calculate room current streak from check-in dates
+  const calculateRoomStreak = (roomId: string): number => {
+    const dates = roomCheckIns[roomId] || []
+    if (!dates.length) return 0
+    return calculateStreak(dates)
+  }
 
   // Join room mutation
   const joinMutation = useMutation({
@@ -226,6 +260,7 @@ export function Rooms() {
               isJoining={joinMutation.isPending}
               hasJoined={joinedRoomIds.includes(room.id)}
               userStreak={userStreaks[room.id] || 0}
+              roomStreak={calculateRoomStreak(room.id)}
             />
           ))}
         </div>
@@ -240,14 +275,16 @@ function RoomCard({
   isJoining,
   hasJoined,
   userStreak,
+  roomStreak,
 }: {
   room: any
   onJoin: () => void
   isJoining: boolean
   hasJoined: boolean
   userStreak: number
+  roomStreak: number
 }) {
-  const progress = Math.min((room.current_room_streak / room.streak_goal) * 100, 100)
+  const progress = Math.min((roomStreak / room.streak_goal) * 100, 100)
 
   return (
     <div className="bg-surface rounded-xl border border-border overflow-hidden hover:border-primary/50 transition-all group">
@@ -285,9 +322,9 @@ function RoomCard({
         <div className="mb-4">
           <div className="flex items-center justify-between text-sm mb-2">
             <div className="flex items-center gap-2">
-              <span className="text-lg">{getStreakFireEmoji(room.current_room_streak)}</span>
+              <span className="text-lg">{getStreakFireEmoji(roomStreak)}</span>
               <span className="font-mono font-bold text-text">
-                {room.current_room_streak}
+                {roomStreak}
               </span>
               <span className="text-muted">day streak</span>
             </div>

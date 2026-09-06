@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../store/authStore'
@@ -15,7 +15,8 @@ import {
   Sparkles,
   Activity,
 } from 'lucide-react'
-import { calculateLevel, getStreakFireEmoji } from '../lib/streakUtils'
+import { calculateLevel, getStreakFireEmoji, calculateStreak, calculateLongestStreak } from '../lib/streakUtils'
+import { getBrowserTimezone, todayInTimezone } from '../lib/timezone'
 
 export function Dashboard() {
   const user = useAuthStore((state) => state.user)
@@ -35,8 +36,35 @@ export function Dashboard() {
     enabled: !!user,
   })
 
+  // Timezone drift mitigation: sync profile timezone with browser timezone once per session
+  useEffect(() => {
+    if (!profile || !user) return
+
+    const sessionKey = `tz-sync-${user.id}`
+    if (sessionStorage.getItem(sessionKey)) return
+    sessionStorage.setItem(sessionKey, '1')
+
+    const browserTimezone = getBrowserTimezone()
+    const storedTimezone = profile.timezone || 'UTC'
+
+    // Skip if already in sync or if stored is still the default UTC
+    if (storedTimezone === browserTimezone || storedTimezone === 'UTC') return
+
+    // Silently sync the timezone
+    supabase
+      .from('profiles')
+      .update({ timezone: browserTimezone })
+      .eq('id', user.id)
+      .then(({ error }) => {
+        if (!error) {
+          queryClient.invalidateQueries({ queryKey: ['profile', user.id] })
+        }
+        // Silent failure is acceptable - next session will retry
+      })
+  }, [profile, user, queryClient])
+
   const { data: userRoomStreaks = {} } = useQuery({
-    queryKey: ['user-room-streaks', user?.id],
+    queryKey: ['user-room-streaks', user?.id, profile?.timezone],
     queryFn: async () => {
       if (!user) return {}
       const { data, error } = await supabase
@@ -47,6 +75,12 @@ export function Dashboard() {
 
       if (error) return {}
 
+      // Anchor "today" in the user's profile timezone so this
+      // client-side walk matches what the DB will compute for
+      // the same user via calculate_user_current_streak.
+      const tz = profile?.timezone || getBrowserTimezone()
+      const todayStr = todayInTimezone(tz)
+
       const result: Record<string, number> = {}
       const byRoom: Record<string, string[]> = {}
       ;(data || []).forEach((c: any) => {
@@ -54,19 +88,11 @@ export function Dashboard() {
         byRoom[c.room_id].push(c.check_in_date)
       })
 
-      const today = startOfDay(new Date())
       Object.entries(byRoom).forEach(([roomId, dates]) => {
-        const dateSet = new Set(dates)
-        let streak = 0
-        const cursor = new Date(today)
-        if (!dateSet.has(format(cursor, 'yyyy-MM-dd'))) {
-          cursor.setDate(cursor.getDate() - 1)
-        }
-        while (dateSet.has(format(cursor, 'yyyy-MM-dd'))) {
-          streak++
-          cursor.setDate(cursor.getDate() - 1)
-        }
-        result[roomId] = streak
+        // Use the shared streak calculator so the rules
+        // (same-day de-dup, yesterday grace, gap detection)
+        // are identical to the personal-streak path.
+        result[roomId] = calculateStreak(dates, todayStr)
       })
 
       return result
@@ -131,6 +157,25 @@ export function Dashboard() {
     enabled: !!user,
   })
 
+  // Fetch all check-in dates for accurate streak calculation
+  const { data: allCheckInDates = [] } = useQuery({
+    queryKey: ['all-checkin-dates', user?.id],
+    queryFn: async () => {
+      if (!user) return []
+      const { data, error } = await supabase
+        .from('check_ins')
+        .select('check_in_date')
+        .eq('user_id', user.id)
+      if (error) throw error
+      return data?.map((c: any) => c.check_in_date) || []
+    },
+    enabled: !!user,
+  })
+
+  // Calculate real streaks from check-in data
+  const realCurrentStreak = useMemo(() => calculateStreak(allCheckInDates), [allCheckInDates])
+  const realLongestStreak = useMemo(() => calculateLongestStreak(allCheckInDates), [allCheckInDates])
+
   // Fetch member counts for user's rooms (now included in rooms_with_stats)
   const memberCounts: Record<string, number> = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -142,7 +187,12 @@ export function Dashboard() {
 
   const checkInMutation = useMutation({
     mutationFn: async (roomId: string) => {
-      const today = format(startOfDay(new Date()), 'yyyy-MM-dd')
+      // Use the profile's stored timezone (falling back to
+      // browser timezone, then UTC) so the date we write is
+      // consistent with the date the DB's calculate_user_*
+      // _streak functions will compute for the trigger.
+      const tz = profile?.timezone || getBrowserTimezone()
+      const today = todayInTimezone(tz)
       const { error } = await supabase.from('check_ins').upsert(
         {
           user_id: user?.id,
@@ -208,13 +258,13 @@ export function Dashboard() {
               <div className="text-sm text-muted uppercase tracking-wide mb-2">Current Streak</div>
               <div className="flex items-baseline gap-3">
                 <span className="text-7xl font-bold font-mono text-accent" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
-                  {displayProfile?.current_streak || 0}
+                  {realCurrentStreak}
                 </span>
                 <span className="text-2xl">🔥</span>
                 <span className="text-lg text-muted">days</span>
               </div>
               <div className="mt-3 text-sm text-muted">
-                <span className="text-text font-semibold">Best:</span> {displayProfile?.longest_streak || 0} days ·
+                <span className="text-text font-semibold">Best:</span> {realLongestStreak} days ·
                 <span className="text-text font-semibold ml-1">Total check-ins:</span> {displayProfile?.total_checkins || 0}
               </div>
             </div>
@@ -247,7 +297,7 @@ export function Dashboard() {
         <StatCard
           icon={Trophy}
           label="Longest"
-          value={displayProfile?.longest_streak || 0}
+          value={realLongestStreak}
           suffix="d"
         />
         <StatCard

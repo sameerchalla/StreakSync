@@ -90,47 +90,172 @@ Muted:         #71717A  (gray)
 - Desktop: sidebar navigation + wider content
 - Breakpoints: sm (640px), md (768px), lg (1024px)
 
-## 4. Features & Interactions
+## 4. Database Entities
 
-### Authentication
-- **Email/Password:** Sign up with validation
-- **Google OAuth:** One-click sign in
-- **Magic Link:** Passwordless email auth
-- **Persistence:** Session saved, auto-refresh
+### profiles
+```sql
+id              UUID PRIMARY KEY REFERENCES auth.users(id)
+username        TEXT UNIQUE NOT NULL
+display_name    TEXT
+avatar_url      TEXT
+timezone        TEXT DEFAULT 'UTC'
+xp              INTEGER DEFAULT 0
+current_streak  INTEGER DEFAULT 0
+longest_streak  INTEGER DEFAULT 0
+total_checkins  INTEGER DEFAULT 0
+level           INTEGER DEFAULT 1
+created_at      TIMESTAMPTZ DEFAULT now()
+```
 
-### Room System
-- **Browse:** Search, filter, sort by streak/members
-- **Join:** One-click join, auto-track membership
-- **Leave:** Confirmation modal
-- **Create:** Full form with icon/color picker, streak goal
+### rooms
+```sql
+id                   UUID PRIMARY KEY DEFAULT gen_random_uuid()
+name                 TEXT NOT NULL
+description          TEXT
+icon                 TEXT DEFAULT '🔥'
+color                TEXT DEFAULT '#F97316'
+creator_id           UUID REFERENCES profiles(id)
+streak_goal          INTEGER DEFAULT 30
+streak_min_members   INTEGER DEFAULT 1  -- quorum threshold
+current_room_streak  INTEGER DEFAULT 0
+created_at           TIMESTAMPTZ DEFAULT now()
+```
 
-### Check-in System
-- **Daily button:** Large, satisfying, fire animation on click
-- **One-click:** Check in to all rooms at once
-- **Undo:** 5-second undo toast
-- **Miss detection:** Visual indicator on missed days
-- **Real-time:** Supabase subscriptions for live updates
+### check_ins
+```sql
+id             UUID PRIMARY KEY DEFAULT gen_random_uuid()
+user_id        UUID REFERENCES profiles(id) NOT NULL
+room_id        UUID REFERENCES rooms(id) NOT NULL
+check_in_date  DATE NOT NULL  -- stored in user's profile timezone
+completed      BOOLEAN DEFAULT true
+created_at     TIMESTAMPTZ DEFAULT now()
 
-### Gamification
-- **XP System:** +10 XP per check-in, bonuses for milestones
-- **Levels:** Progressive unlock (Lv.1 = 0 XP, scaling)
-- **Streaks:** Current, longest, per-room, global
-- **Leaderboards:** Room-level and global rankings
-- **Milestones:** 7, 14, 30, 50, 100, 365 days with celebrations
+UNIQUE (user_id, room_id, check_in_date)  -- prevents duplicate check-ins
+```
 
-### Individual Habits
-- **Create:** Name, icon, color
-- **Track:** Daily check-in with calendar view
-- **Charts:** Streak history line chart
-- **Heatmap:** GitHub-style contribution graph
+### room_members
+```sql
+room_id     UUID REFERENCES rooms(id)
+user_id     UUID REFERENCES profiles(id)
+joined_at   TIMESTAMPTZ DEFAULT now()
+is_active   BOOLEAN DEFAULT true
 
-### Profile
-- **Stats:** All-time, monthly, weekly summaries
-- **Heatmap:** Year-long contribution history
-- **Achievements:** Badge system for milestones
-- **Edit:** Username, display name, avatar
+PRIMARY KEY (room_id, user_id)
+```
 
-## 5. Component Inventory
+### habits
+```sql
+id          UUID PRIMARY KEY DEFAULT gen_random_uuid()
+user_id     UUID REFERENCES profiles(id)
+name        TEXT NOT NULL
+icon        TEXT DEFAULT '🎯'
+color       TEXT DEFAULT '#6366F1'
+created_at  TIMESTAMPTZ DEFAULT now()
+```
+
+### habit_logs
+```sql
+habit_id       UUID REFERENCES habits(id)
+log_date       DATE NOT NULL
+completed      BOOLEAN DEFAULT true
+
+PRIMARY KEY (habit_id, log_date)
+```
+
+## 5. Business Logic & Invariants
+
+### Personal Streaks
+
+A user's **personal streak** is the count of consecutive calendar days on which they checked into at least one room, computed in the user's localized timezone.
+
+**Rules:**
+1. The streak is anchored to `profiles.timezone` (not UTC or browser local time)
+2. A day is "checked in" if there exists at least one `check_ins` row for that user with `check_in_date = today_in_tz(timezone)` and `completed = true`
+3. The streak resets to 0 when a gap of one or more calendar days is detected
+4. The "longest streak" is the maximum value ever reached and never decreases
+
+**Implementation:**
+- `calculate_user_current_streak(user_id)` — SQL function in migration 003
+- `calculateStreak(dates[], todayStr)` — client-side utility in `streakUtils.ts`
+
+### Room Streaks
+
+A room's **collective streak** requires quorum participation before incrementing.
+
+**Rules:**
+1. For a given calendar day, count distinct users who checked into the room (`completed = true`)
+2. If `count >= rooms.streak_min_members`, the room's `current_room_streak` increments
+3. If the quorum is not met, the room streak resets to 0
+4. The streak is computed for each user's timezone day independently
+
+**Quorum invariant:** `streak_min_members >= 1` for all rooms (enforced by audit script)
+
+### XP Calculation
+
+XP is a strict function of check-in count with no independent state:
+
+```
+xp = total_checkins * 10
+```
+
+**Rules:**
+1. `total_checkins` is the count of distinct `(user_id, room_id, check_in_date)` rows for the user with `completed = true`
+2. XP is always derived, never stored independently
+3. The trigger `update_streaks_on_checkin` maintains this invariant on every insert/delete to `check_ins`
+4. Duplicate inserts are rejected by the unique constraint, preventing XP inflation
+
+### Timezone Handling
+
+**At signup:**
+1. Capture `Intl.DateTimeFormat().resolvedOptions().timeZone` from the browser
+2. Store it in `profiles.timezone`
+
+**On dashboard load (Phase 5 mitigation):**
+1. Compare `profile.timezone` with current browser timezone
+2. If different and profile timezone is not 'UTC', silently update `profiles.timezone`
+3. Use `sessionStorage` flag to ensure only one sync per session
+
+**Check-in date computation:**
+- Client: `todayInTimezone(tz)` → `yyyy-MM-dd` string
+- Server: `today_in_tz(tz)` → `date` type
+
+## 6. API & Trigger Specifications
+
+### Triggers on `public.check_ins`
+
+#### `update_streaks_on_checkin`
+
+Fires: `AFTER INSERT OR DELETE ON public.check_ins FOR EACH STATEMENT`
+
+Logic:
+1. On INSERT: increment `profiles.total_checkins`, recompute `profiles.xp`, recalculate `current_streak` and `longest_streak`
+2. On DELETE: decrement `profiles.total_checkins`, recompute `profiles.xp`, recalculate streaks
+3. Uses `calculate_user_current_streak(user_id)` and `calculate_user_longest_streak(user_id)` functions
+
+#### `update_room_streaks_on_checkin`
+
+Fires: `AFTER INSERT OR DELETE ON public.check_ins FOR EACH STATEMENT`
+
+Logic:
+1. Determine the check-in date in UTC (stored value)
+2. Query distinct users who checked in for that date
+3. Compare count against `rooms.streak_min_members`
+4. If quorum met: increment `rooms.current_room_streak`; else: reset to 0
+
+### SQL Functions
+
+#### `today_in_tz(tz TEXT) RETURNS DATE`
+```sql
+SELECT ((now() at time zone tz)::date);
+```
+
+#### `calculate_user_current_streak(user_id UUID) RETURNS INTEGER`
+Walks backward from today counting consecutive checked-in days in the user's timezone.
+
+#### `calculate_user_longest_streak(user_id UUID) RETURNS INTEGER`
+Scans all check-in dates to find the maximum consecutive run.
+
+## 7. Component Inventory
 
 ### Buttons
 - **Primary:** Indigo bg, white text, hover:scale-105
@@ -163,43 +288,26 @@ Muted:         #71717A  (gray)
 - **Skeleton:** Shimmer animation while loading
 - **Empty state:** Illustration + CTA
 
-## 6. Technical Approach
+## 8. Technical Approach
 
 ### Stack
-- **Frontend:** React 18 + Vite + TypeScript
+- **Frontend:** React 19 + Vite + TypeScript
 - **Styling:** Tailwind CSS v4 + CSS custom properties
-- **State:** Zustand (auth) + React Query (server state)
-- **Routing:** React Router v6
+- **State:** Zustand (auth) + TanStack Query (server state)
+- **Routing:** React Router v7
 - **Backend:** Supabase (PostgreSQL + Auth + Realtime)
 - **Charts:** Recharts
 - **Icons:** Lucide React
 - **Dates:** date-fns
 - **Deployment:** Vercel
 
-### Supabase Schema
-```sql
--- profiles: extends auth.users
--- rooms: habit room metadata
--- room_members: user-room join with timestamps
--- check_ins: daily check-in records (unique per user/room/date)
--- habits: individual habit definitions
--- habit_logs: individual habit completion logs
-```
-
-### API Design
-All data operations through Supabase client:
-- `supabase.from('rooms').select()` — Fetch rooms
-- `supabase.from('check_ins').upsert()` — Create/update check-in
-- `supabase.auth.signInWithOAuth()` — Google auth
-- Real-time subscriptions for live leaderboard updates
-
 ### Environment Variables
 ```
-VITE_SUPABASE_URL=your_supabase_project_url
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
 ```
 
-## 7. Demo Mode
+## 9. Demo Mode
 
 When Supabase is not configured, the app displays **realistic demo data**:
 - 3 pre-joined rooms with varied streaks

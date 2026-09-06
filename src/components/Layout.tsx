@@ -1,4 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { Home, Users, Trophy, Target, User as UserIcon, LogOut, Flame, Sun, Moon } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useThemeStore } from '../store/themeStore'
@@ -16,10 +17,13 @@ const navItems = [
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const user = useAuthStore((state) => state.user)
   const { theme, toggleTheme } = useThemeStore()
 
   const handleSignOut = async () => {
+    // Clear React Query cache to prevent stale streak/XP state leaking across sessions
+    queryClient.clear()
     await supabase.auth.signOut()
     navigate('/')
   }

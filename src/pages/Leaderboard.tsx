@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../store/authStore'
 import {
@@ -9,9 +10,8 @@ import {
   Loader2,
   Users,
 } from 'lucide-react'
-import { getStreakFireEmoji } from '../lib/streakUtils'
+import { getStreakFireEmoji, calculateLevel, calculateStreak, calculateLongestStreak } from '../lib/streakUtils'
 import { clsx } from 'clsx'
-import { calculateLevel } from '../lib/streakUtils'
 
 interface LeaderboardEntry {
   rank: number
@@ -28,14 +28,14 @@ interface LeaderboardEntry {
 export function Leaderboard() {
   const user = useAuthStore((state) => state.user)
 
-  // Fetch global leaderboard ordered by streak
+  // Fetch global leaderboard ordered by total_checkins (desc) as a proxy
   const { data: profiles, isLoading } = useQuery({
     queryKey: ['global-leaderboard'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .order('current_streak', { ascending: false })
+        .order('total_checkins', { ascending: false })
         .limit(50)
       if (error) throw error
       return data
@@ -43,18 +43,57 @@ export function Leaderboard() {
     enabled: !!user,
   })
 
-  // Add rank to each entry
-  const displayLeaderboard: LeaderboardEntry[] = (profiles || []).map((p, index) => ({
-    rank: index + 1,
-    id: p.id,
-    username: p.username || '',
-    display_name: p.display_name,
-    avatar_url: p.avatar_url,
-    current_streak: p.current_streak || 0,
-    longest_streak: p.longest_streak || 0,
-    total_checkins: p.total_checkins || 0,
-    xp: p.xp || 0,
-  }))
+  // Fetch all check-ins to calculate streaks per user
+  const { data: allCheckins = [] } = useQuery({
+    queryKey: ['leaderboard-checkins'],
+    queryFn: async () => {
+      if (!user) return []
+      const { data, error } = await supabase
+        .from('check_ins')
+        .select('user_id, check_in_date')
+        .in('user_id', (profiles || []).map((p: any) => p.id))
+      if (error) return []
+      return data || []
+    },
+    enabled: !!user && !!profiles,
+  })
+
+  // Group check-ins by user
+  const checkinsByUser = useMemo(() => {
+    const result: Record<string, string[]> = {}
+    ;(allCheckins || []).forEach((c: any) => {
+      if (!result[c.user_id]) result[c.user_id] = []
+      result[c.user_id].push(c.check_in_date)
+    })
+    return result
+  }, [allCheckins])
+
+  // Add rank to each entry with calculated streaks
+  const displayLeaderboard: LeaderboardEntry[] = useMemo(() => {
+    const entries = (profiles || []).map((p, index) => {
+      const userCheckins = checkinsByUser[p.id] || []
+      const currentStreak = calculateStreak(userCheckins)
+      const longestStreak = calculateLongestStreak(userCheckins)
+
+      return {
+        rank: index + 1,
+        id: p.id,
+        username: p.username || '',
+        display_name: p.display_name,
+        avatar_url: p.avatar_url,
+        current_streak: currentStreak,
+        longest_streak: longestStreak,
+        total_checkins: p.total_checkins || 0,
+        xp: p.xp || 0,
+      }
+    })
+
+    // Sort by current streak descending, then total_checkins descending
+    entries.sort((a, b) => b.current_streak - a.current_streak || b.total_checkins - a.total_checkins)
+
+    // Re-rank after sorting
+    return entries.map((entry, index) => ({ ...entry, rank: index + 1 }))
+  }, [profiles, checkinsByUser])
 
   // Find current user's entry
   const currentUserEntry = displayLeaderboard.find((entry) => entry.id === user?.id)

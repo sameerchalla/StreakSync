@@ -9,9 +9,9 @@ import {
   Calendar,
   Edit3,
 } from 'lucide-react'
-import { calculateLevel, getStreakFireEmoji, generateHeatmapData } from '../lib/streakUtils'
+import { calculateLevel, getStreakFireEmoji, generateHeatmapData, calculateStreak, calculateLongestStreak } from '../lib/streakUtils'
 import { clsx } from 'clsx'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 
 export function Profile() {
   const user = useAuthStore((state) => state.user)
@@ -45,6 +45,10 @@ export function Profile() {
     },
     enabled: !!user,
   })
+
+  // Calculate real streaks from check-in data
+  const realCurrentStreak = useMemo(() => calculateStreak(checkins || []), [checkins])
+  const realLongestStreak = useMemo(() => calculateLongestStreak(checkins || []), [checkins])
 
   // Fetch global leaderboard for Top 10 achievement
   const { data: leaderboard } = useQuery({
@@ -117,13 +121,13 @@ export function Profile() {
   // Derive achievements from real data
   const achievements = [
     { emoji: '🔥', label: 'First Check-in', earned: (displayProfile?.total_checkins || 0) >= 1 },
-    { emoji: '📅', label: '7-Day Streak', earned: (displayProfile?.longest_streak || 0) >= 7 },
+    { emoji: '📅', label: '7-Day Streak', earned: realLongestStreak >= 7 },
     { emoji: '💯', label: '100 Check-ins', earned: (displayProfile?.total_checkins || 0) >= 100 },
-    { emoji: '30d', label: '30-Day Streak', earned: (displayProfile?.longest_streak || 0) >= 30 },
+    { emoji: '30d', label: '30-Day Streak', earned: realLongestStreak >= 30 },
     { emoji: '💎', label: '1000 XP', earned: (displayProfile?.xp || 0) >= 1000 },
     { emoji: '🏆', label: 'Top 10', earned: isTop10 },
     { emoji: '👑', label: 'Level 5', earned: levelInfo.level >= 5 },
-    { emoji: '🚀', label: '365-Day Streak', earned: (displayProfile?.longest_streak || 0) >= 365 },
+    { emoji: '🚀', label: '365-Day Streak', earned: realLongestStreak >= 365 },
   ]
 
   return (
@@ -211,15 +215,15 @@ export function Profile() {
         <StatCard
           icon={Flame}
           label="Current Streak"
-          value={displayProfile?.current_streak || 0}
+          value={realCurrentStreak}
           suffix=" days"
           highlight
-          emoji={getStreakFireEmoji(displayProfile?.current_streak || 0)}
+          emoji={getStreakFireEmoji(realCurrentStreak)}
         />
         <StatCard
           icon={Trophy}
           label="Longest Streak"
-          value={displayProfile?.longest_streak || 0}
+          value={realLongestStreak}
           suffix=" days"
           emoji="🏆"
         />
@@ -286,7 +290,7 @@ export function Profile() {
             <div className="text-sm text-muted">Success Rate</div>
           </div>
           <div>
-            <div className="text-3xl font-bold text-accent mb-1">🔥{displayProfile?.longest_streak || 0}</div>
+            <div className="text-3xl font-bold text-accent mb-1">🔥{realLongestStreak}</div>
             <div className="text-sm text-muted">Best Streak</div>
           </div>
         </div>

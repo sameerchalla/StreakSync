@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../store/authStore'
-import { format, startOfDay, subDays } from 'date-fns'
 import {
   Plus,
   Target,
@@ -21,6 +20,7 @@ import {
   Tooltip,
 } from 'recharts'
 import { generateHeatmapData, getStreakFireEmoji, calculateStreak } from '../lib/streakUtils'
+import { todayInTimezone } from '../lib/timezone'
 import { clsx } from 'clsx'
 
 const HABIT_ICONS = ['💪', '📚', '🏃', '🧘', '💧', '🥗', '😴', '✍️', '🎨', '🎵', '🧠', '⚡']
@@ -37,6 +37,22 @@ export function Habits() {
   const user = useAuthStore((state) => state.user)
   const queryClient = useQueryClient()
   const [showAddModal, setShowAddModal] = useState(false)
+
+  // Fetch user's profile for timezone
+  const { data: profile } = useQuery({
+    queryKey: ['profile', user?.id],
+    queryFn: async () => {
+      if (!user) return null
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('timezone')
+        .eq('id', user.id)
+        .single()
+      if (error) return null
+      return data
+    },
+    enabled: !!user,
+  })
 
   // Fetch habits
   const { data: habits, isLoading } = useQuery({
@@ -91,8 +107,14 @@ export function Habits() {
   // Use real habits only
   const displayHabits = habits || []
 
-  const today = format(startOfDay(new Date()), 'yyyy-MM-dd')
-  const last30 = Array.from({ length: 30 }, (_, i) => format(subDays(new Date(), i), 'yyyy-MM-dd'))
+  // Use timezone-aware date for consistency with check-ins
+  const tz = profile?.timezone || 'UTC'
+  const today = todayInTimezone(tz)
+  const last30 = Array.from({ length: 30 }, (_, i) => {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    return todayInTimezone(tz, d)
+  })
 
   return (
     <div className="space-y-6 pb-20 md:pb-0">

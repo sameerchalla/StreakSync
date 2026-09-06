@@ -1,39 +1,6 @@
 import { format, subDays, startOfDay, differenceInDays, parseISO } from 'date-fns'
 
 /**
- * Calculate current streak from a list of check-in dates
- */
-export function calculateStreak(checkInDates: string[]): number {
-  if (!checkInDates.length) return 0
-
-  const sorted = checkInDates
-    .map((d) => startOfDay(parseISO(d)).getTime())
-    .sort((a, b) => b - a) // newest first
-
-  const today = startOfDay(new Date()).getTime()
-  const mostRecent = sorted[0]
-
-  // If most recent check-in is older than yesterday, streak is 0
-  const daysSinceLast = Math.floor((today - mostRecent) / (1000 * 60 * 60 * 24))
-  if (daysSinceLast > 1) return 0
-
-  let streak = 1
-  for (let i = 1; i < sorted.length; i++) {
-    const diff = Math.floor((sorted[i - 1] - sorted[i]) / (1000 * 60 * 60 * 24))
-    if (diff === 1) {
-      streak++
-    } else if (diff === 0) {
-      // Same day, skip
-      continue
-    } else {
-      break
-    }
-  }
-
-  return streak
-}
-
-/**
  * Check if user has checked in today
  */
 export function hasCheckedInToday(checkInDates: string[]): boolean {
@@ -113,6 +80,84 @@ export function getStreakFireEmoji(streak: number): string {
   if (streak < 30) return '🔥🔥🔥'
   if (streak < 100) return '💥🔥🔥'
   return '🚀🔥💥'
+}
+
+/**
+ * Calculate current streak from check-in dates.
+ * Consecutive days ending on `today` (defaults to the
+ * runtime's local date). Returns 0 if most recent
+ * check-in is more than 1 day before `today`.
+ * Skips same-day duplicates.
+ *
+ * `today` should be a `yyyy-MM-dd` string. Pass an explicit
+ * value to align with a database-computed "today" (e.g.
+ * `(now() at time zone profile.timezone)::date`).
+ */
+export function calculateStreak(
+  checkInDates: string[],
+  today?: string
+): number {
+  if (!checkInDates.length) return 0
+
+  const sorted = checkInDates
+    .map((d) => startOfDay(parseISO(d)).getTime())
+    .sort((a, b) => b - a) // newest first
+
+  const todayMs = today
+    ? startOfDay(parseISO(today)).getTime()
+    : startOfDay(new Date()).getTime()
+  const mostRecent = sorted[0]
+
+  // If most recent check-in is older than yesterday, streak is 0
+  const daysSinceLast = Math.floor((todayMs - mostRecent) / (1000 * 60 * 60 * 24))
+  if (daysSinceLast > 1) return 0
+
+  let streak = 1
+  for (let i = 1; i < sorted.length; i++) {
+    const diff = Math.floor((sorted[i - 1] - sorted[i]) / (1000 * 60 * 60 * 24))
+    if (diff === 1) {
+      streak++
+    } else if (diff === 0) {
+      // Same day, skip
+      continue
+    } else {
+      break
+    }
+  }
+
+  return streak
+}
+
+/**
+ * Calculate longest historical streak from check-in dates.
+ * Finds the maximum consecutive sequence across all check-in dates.
+ * Skips same-day duplicates.
+ */
+export function calculateLongestStreak(checkInDates: string[]): number {
+  if (!checkInDates.length) return 0
+
+  const dates = checkInDates
+    .map((d) => startOfDay(parseISO(d)).getTime())
+    .sort((a, b) => a - b) // oldest first
+    .filter((d, i, arr) => i === 0 || d !== arr[i - 1]) // remove duplicates
+
+  let longest = 1
+  let current = 1
+
+  for (let i = 1; i < dates.length; i++) {
+    const diff = Math.floor((dates[i] - dates[i - 1]) / (1000 * 60 * 60 * 24))
+    if (diff === 1) {
+      current++
+      longest = Math.max(longest, current)
+    } else if (diff === 0) {
+      // Same day, skip (doesn't break or extend streak)
+      continue
+    } else {
+      current = 1 // Reset on gap
+    }
+  }
+
+  return longest
 }
 
 /**

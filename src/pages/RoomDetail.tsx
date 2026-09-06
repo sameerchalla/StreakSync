@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
@@ -16,7 +16,8 @@ import {
   AlertCircle,
   Plus,
 } from 'lucide-react'
-import { getStreakFireEmoji, getStreakMilestone } from '../lib/streakUtils'
+import { getStreakFireEmoji, getStreakMilestone, calculateStreak, calculateLongestStreak } from '../lib/streakUtils'
+import { getBrowserTimezone, todayInTimezone } from '../lib/timezone'
 import { clsx } from 'clsx'
 
 export function RoomDetail() {
@@ -24,6 +25,22 @@ export function RoomDetail() {
   const user = useAuthStore((state) => state.user)
   const queryClient = useQueryClient()
   const [showConfetti, setShowConfetti] = useState(false)
+
+  // Fetch user's profile for timezone
+  const { data: profile } = useQuery({
+    queryKey: ['profile', user?.id],
+    queryFn: async () => {
+      if (!user) return null
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('timezone')
+        .eq('id', user.id)
+        .single()
+      if (error) return null
+      return data
+    },
+    enabled: !!user,
+  })
 
   // Fetch room details
   const { data: room, isLoading, error: roomError } = useQuery({
@@ -56,11 +73,12 @@ export function RoomDetail() {
   })
   const memberCount = roomWithStats?.member_count || 0
 
-  // Fetch today's check-in for current user
+  // Fetch today's check-in for current user (using profile timezone)
   const { data: todayCheckin } = useQuery({
-    queryKey: ['today-checkin', id, user?.id],
+    queryKey: ['today-checkin', id, user?.id, profile?.timezone],
     queryFn: async () => {
-      const today = format(startOfDay(new Date()), 'yyyy-MM-dd')
+      const tz = profile?.timezone || getBrowserTimezone()
+      const today = todayInTimezone(tz)
       const { data, error } = await supabase
         .from('check_ins')
         .select('*')
@@ -73,6 +91,52 @@ export function RoomDetail() {
     },
     enabled: !!id && !!user,
   })
+
+  // Fetch room check-ins for calculating room streak
+  const { data: roomCheckIns = [] } = useQuery({
+    queryKey: ['room-checkins', id],
+    queryFn: async () => {
+      if (!id) return []
+      const { data, error } = await supabase
+        .from('check_ins')
+        .select('check_in_date')
+        .eq('room_id', id)
+      if (error) throw error
+      return data?.map((c: any) => c.check_in_date) || []
+    },
+    enabled: !!id,
+  })
+
+  // Calculate room current streak and longest streak
+  const { streak: roomCurrentStreak, longestStreak: roomLongestStreak } = useMemo(() => {
+    if (!roomCheckIns.length) return { streak: 0, longestStreak: 0 }
+
+    const today = startOfDay(new Date())
+    const yesterday = subDays(today, 1)
+    const dateSet = new Set(roomCheckIns)
+
+    // Current streak: consecutive days ending today or yesterday using calculateStreak
+    let currentStreak = 0
+    const hasToday = dateSet.has(format(today, 'yyyy-MM-dd'))
+    const hasYesterday = dateSet.has(format(yesterday, 'yyyy-MM-dd'))
+
+    if (!hasToday && !hasYesterday) {
+      // No recent check-in, streak is 0
+    } else {
+      // Filter to recent dates (last 60 days) for current streak calculation
+      const recentDates = roomCheckIns.filter((d) => {
+        const date = new Date(d)
+        const daysAgo = Math.floor((new Date().getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
+        return daysAgo <= 60
+      })
+      currentStreak = calculateStreak(recentDates)
+    }
+
+    // Longest streak: longest consecutive sequence across all check-in dates
+    const longestStreak = calculateLongestStreak(roomCheckIns)
+
+    return { streak: currentStreak, longestStreak }
+  }, [roomCheckIns])
 
   // Fetch leaderboard: for each active member, compute personal streak in this room
   const { data: leaderboard = [] } = useQuery({
@@ -193,7 +257,9 @@ export function RoomDetail() {
         )
         if (joinErr) throw joinErr
       }
-      const today = format(startOfDay(new Date()), 'yyyy-MM-dd')
+      // Use profile timezone for the check-in date
+      const tz = profile?.timezone || getBrowserTimezone()
+      const today = todayInTimezone(tz)
       const { error } = await supabase.from('check_ins').upsert(
         {
           user_id: user?.id,
@@ -210,8 +276,11 @@ export function RoomDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['today-checkin', id] })
       queryClient.invalidateQueries({ queryKey: ['room', id] })
+      queryClient.invalidateQueries({ queryKey: ['room-checkins', id] })
+      queryClient.invalidateQueries({ queryKey: ['room-checkins-for-streak'] })
       queryClient.invalidateQueries({ queryKey: ['room-leaderboard', id] })
       queryClient.invalidateQueries({ queryKey: ['room-member-count', id] })
+      queryClient.invalidateQueries({ queryKey: ['rooms'] })
       queryClient.invalidateQueries({ queryKey: ['profile'] })
       queryClient.invalidateQueries({ queryKey: ['user-rooms'] })
       queryClient.invalidateQueries({ queryKey: ['user-room-streaks'] })
@@ -254,10 +323,10 @@ export function RoomDetail() {
   }
 
   const progress = Math.min(
-    ((displayRoom.current_room_streak || 0) / (displayRoom.streak_goal || 100)) * 100,
+    ((roomCurrentStreak) / (displayRoom.streak_goal || 100)) * 100,
     100
   )
-  const milestone = getStreakMilestone(displayRoom.current_room_streak || 0)
+  const milestone = getStreakMilestone(roomCurrentStreak)
 
   return (
     <div className="space-y-6 pb-20 md:pb-0">
@@ -321,15 +390,15 @@ export function RoomDetail() {
           {/* Room Stats */}
           <div className="grid grid-cols-3 gap-4 mt-6">
             <div className="text-center p-4 bg-background rounded-xl">
-              <div className="text-2xl mb-1">{getStreakFireEmoji(displayRoom.current_room_streak || 0)}</div>
-              <div className="text-xl font-bold text-text">{displayRoom.current_room_streak || 0}</div>
+              <div className="text-2xl mb-1">{getStreakFireEmoji(roomCurrentStreak)}</div>
+              <div className="text-xl font-bold text-text">{roomCurrentStreak}</div>
               <div className="text-xs text-muted">Room Streak</div>
             </div>
             <div className="text-center p-4 bg-background rounded-xl">
               <div className="flex items-center justify-center gap-1 mb-1">
                 <Trophy className="w-5 h-5 text-accent" />
               </div>
-              <div className="text-xl font-bold text-text">{displayRoom.max_room_streak || 0}</div>
+              <div className="text-xl font-bold text-text">{roomLongestStreak}</div>
               <div className="text-xs text-muted">Best Streak</div>
             </div>
             <div className="text-center p-4 bg-background rounded-xl">
@@ -353,7 +422,7 @@ export function RoomDetail() {
             )}
           </div>
           <span className="text-2xl font-bold text-text">
-            {displayRoom.current_room_streak || 0}
+            {roomCurrentStreak}
             <span className="text-muted text-lg"> / {displayRoom.streak_goal || 100}</span>
           </span>
         </div>

@@ -29,6 +29,7 @@ export function CreateRoom() {
   const [icon, setIcon] = useState('💻')
   const [color, setColor] = useState('#6366F1')
   const [streakGoal, setStreakGoal] = useState(30)
+  const [streakMinMembers, setStreakMinMembers] = useState(1)
   const [frequency, setFrequency] = useState<'daily' | 'weekly'>('daily')
 
   const createMutation = useMutation({
@@ -42,6 +43,7 @@ export function CreateRoom() {
           icon,
           color,
           streak_goal: streakGoal,
+          streak_min_members: streakMinMembers,
           frequency,
           created_by: user?.id,
           is_public: true,
@@ -197,6 +199,24 @@ export function CreateRoom() {
             />
             <p className="text-xs text-muted mt-2">
               How many days should the room streak last? Popular: 21, 30, 66, 100
+            </p>
+          </div>
+
+          {/* Streak Min Members (Quorum) */}
+          <div>
+            <label className="block text-sm font-medium text-text mb-2">
+              Members needed for room streak
+            </label>
+            <input
+              type="number"
+              value={streakMinMembers}
+              onChange={(e) => setStreakMinMembers(parseInt(e.target.value) || 1)}
+              min={1}
+              max={50}
+              className="w-full px-4 py-3 bg-background border border-border rounded-lg text-text focus:outline-none focus:border-primary transition-colors"
+            />
+            <p className="text-xs text-muted mt-2">
+              How many members must check in each day to maintain the room streak? Default is 1 (any member).
             </p>
           </div>
 

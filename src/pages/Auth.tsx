@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Flame, Mail, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { clsx } from 'clsx'
+import { getBrowserTimezone } from '../lib/timezone'
 
 type AuthMode = 'login' | 'signup'
 
@@ -70,11 +71,13 @@ export function Auth() {
           // 2. If the trigger didn't fire (e.g. disabled), this creates the profile
           // 3. It's idempotent - safe to call multiple times
           const sanitizedDisplayName = username.trim().slice(0, 50)
+          const browserTz = getBrowserTimezone()
           const { error: profileError } = await supabase.from('profiles').upsert(
             {
               id: data.user.id,
               username: sanitizedUsername,
               display_name: sanitizedDisplayName,
+              timezone: browserTz,
             },
             { onConflict: 'id' }
           )
