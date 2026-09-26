@@ -1,7 +1,0 @@
-{
-  "issues": [],
-  "consoleErrors": [],
-  "networkErrors": [
-    "POST https://poacwioygsyioyikkzvw.supabase.co/auth/v1/logout?scope=global - net::ERR_ABORTED"
-  ]
-}
