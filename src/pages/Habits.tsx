@@ -305,8 +305,8 @@ export function Habits() {
                 <div className="px-4 pb-4">
                   <ResponsiveContainer width="100%" height={80}>
                     <LineChart
-                      data={heatmap.slice(-30).map((d, i) => ({
-                        day: i,
+                      data={heatmap.slice(-30).map((d) => ({
+                        day: d.date,
                         completed: d.count,
                       }))}
                     >
@@ -318,7 +318,7 @@ export function Habits() {
                         dot={false}
                       />
                       <YAxis hide domain={[0, 1]} />
-                      <XAxis hide />
+                      <XAxis dataKey="day" tick={{ fontSize: 9, fill: '#71717A' }} tickFormatter={(v: string) => v.slice(5)} interval={4} angle={-30} textAnchor="end" height={30} />
                       <Tooltip
                         contentStyle={{
                           background: '#16161A',

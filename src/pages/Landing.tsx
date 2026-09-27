@@ -37,9 +37,9 @@ const testimonials = [
 
 const socialProof = [
   { value: 'Beta', label: 'Live Preview' },
-  { value: 'Hackathon', label: 'Demo Mode' },
+  { value: 'Project', label: 'Demo Mode' },
   { value: 'Early', label: 'Access' },
-  { value: 'v1.1', label: 'Release' },
+  { value: 'v1.2', label: 'Release' },
 ]
 
 export function Landing() {

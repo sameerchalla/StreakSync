@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../store/authStore'
-import { ArrowLeft, Loader2 } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { ArrowLeft, Loader2, Copy, Check } from 'lucide-react'
+import { toast } from 'sonner'
 
 const ROOM_ICONS = ['💻', '🏋️', '📚', '🧘', '📵', '🌍', '🎨', '✍️', '💪', '🎯', '🔥', '⚡', '🎮', '🍎', '💤']
 
@@ -20,7 +20,6 @@ const ROOM_COLORS = [
 ]
 
 export function CreateRoom() {
-  const navigate = useNavigate()
   const user = useAuthStore((state) => state.user)
 
   const [name, setName] = useState('')
@@ -30,7 +29,10 @@ export function CreateRoom() {
   const [color, setColor] = useState('#6366F1')
   const [streakGoal, setStreakGoal] = useState(30)
   const [streakMinMembers, setStreakMinMembers] = useState(1)
-  const [frequency, setFrequency] = useState<'daily' | 'weekly'>('daily')
+  const [frequency, setFrequency] = useState<number>(1)
+  const [visibility, setVisibility] = useState<'public' | 'private'>('public')
+  const [createdRoom, setCreatedRoom] = useState<any>(null)
+  const [copied, setCopied] = useState(false)
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -44,16 +46,25 @@ export function CreateRoom() {
           color,
           streak_goal: streakGoal,
           streak_min_members: streakMinMembers,
-          frequency,
+          frequency: frequency === 1 ? 'daily' : 'weekly',
           created_by: user?.id,
-          is_public: true,
+          is_public: visibility === 'public',
+          visibility,
         })
         .select()
         .single()
 
-      if (error) throw error
+      if (error) {
+        console.error('Room creation error:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+        })
+        throw error
+      }
 
-      // Automatically join the created room
+      // Auto-join the creator as a member
       const { error: joinError } = await supabase.from('room_members').insert({
         user_id: user?.id,
         room_id: data.id,
@@ -64,7 +75,11 @@ export function CreateRoom() {
       return data
     },
     onSuccess: (data) => {
-      navigate(`/rooms/${data.id}`)
+      setCreatedRoom(data)
+      toast.success('Room created successfully!')
+    },
+    onError: () => {
+      toast.error('Failed to create room. Please try again.')
     },
   })
 
@@ -72,6 +87,79 @@ export function CreateRoom() {
     e.preventDefault()
     if (!name.trim() || !goal.trim()) return
     createMutation.mutate()
+  }
+
+  const handleCopyCode = () => {
+    if (createdRoom?.room_code) {
+      navigator.clipboard.writeText(createdRoom.room_code)
+      setCopied(true)
+      toast.success('Room code copied to clipboard!')
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  // If room was created, show the room code
+  if (createdRoom) {
+    return (
+      <div className="max-w-2xl mx-auto pb-20 md:pb-0">
+        <Link
+          to="/rooms"
+          className="inline-flex items-center gap-2 text-muted hover:text-text transition-colors mb-6"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Rooms
+        </Link>
+
+        <div className="bg-surface rounded-2xl border border-border overflow-hidden">
+          <div className="p-8 text-center">
+            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-4xl mx-auto mb-6">
+              {createdRoom.icon}
+            </div>
+
+            <h1 className="text-3xl font-bold text-text mb-2">{createdRoom.name}</h1>
+            <p className="text-muted mb-8">
+              {createdRoom.description || createdRoom.goal}
+            </p>
+
+            <div className="bg-background rounded-xl p-6 border border-border mb-6">
+              <p className="text-sm text-muted uppercase tracking-wide mb-3">Room Code</p>
+              <div className="flex items-center justify-center gap-4">
+                <span className="text-5xl font-bold font-mono text-primary tracking-wider">
+                  {createdRoom.room_code}
+                </span>
+                <button
+                  onClick={handleCopyCode}
+                  className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                  title="Copy room code"
+                >
+                  {copied ? (
+                    <Check className="w-5 h-5 text-success" />
+                  ) : (
+                    <Copy className="w-5 h-5" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <p className="text-sm text-muted mb-6">
+              Share this code with people you want to invite.
+              {visibility === 'private' && (
+                <span className="block mt-2 text-accent">
+                  This is a private room. People who join will need your approval.
+                </span>
+              )}
+            </p>
+
+            <Link
+              to={`/rooms/${createdRoom.id}`}
+              className="inline-flex items-center justify-center w-full py-3 bg-gradient-accent text-white font-semibold rounded-lg hover:opacity-90 transition-opacity"
+            >
+              Go to Room
+            </Link>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -202,49 +290,75 @@ export function CreateRoom() {
             </p>
           </div>
 
-          {/* Streak Min Members (Quorum) */}
+          {/* Streak Min Members (Quorum) — percentage */}
           <div>
             <label className="block text-sm font-medium text-text mb-2">
-              Members needed for room streak
+              Members needed for room streak (%)
             </label>
             <input
               type="number"
               value={streakMinMembers}
-              onChange={(e) => setStreakMinMembers(parseInt(e.target.value) || 1)}
-              min={1}
-              max={50}
+              onChange={(e) => setStreakMinMembers(parseInt(e.target.value) || 50)}
+              min={10}
+              max={100}
+              step={10}
               className="w-full px-4 py-3 bg-background border border-border rounded-lg text-text focus:outline-none focus:border-primary transition-colors"
             />
             <p className="text-xs text-muted mt-2">
-              How many members must check in each day to maintain the room streak? Default is 1 (any member).
+              Percentage of members that must check in to maintain streak (e.g., 50%).
             </p>
           </div>
 
           {/* Frequency */}
           <div>
-            <label className="block text-sm font-medium text-text mb-3">Check-in Frequency</label>
-            <div className="flex gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
+            <label className="block text-sm font-medium text-text mb-2">Check-in Frequency (days)</label>
+            <select
+              value={frequency}
+              onChange={(e) => setFrequency(parseInt(e.target.value))}
+              className="w-full px-4 py-3 bg-background border border-border rounded-lg text-text focus:outline-none focus:border-primary transition-colors"
+            >
+              {Array.from({ length: 14 }, (_, i) => i + 1).map((days) => (
+                <option key={days} value={days}>
+                  {days} {days === 1 ? 'day' : 'days'}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted mt-2">
+              How often members should check in (1–14 days).
+            </p>
+          </div>
+
+          {/* Visibility */}
+          <div>
+            <label className="block text-sm font-medium text-text mb-3">Room Visibility</label>
+            <div className="space-y-2">
+              <label className="flex items-center gap-3 p-3 border border-border rounded-lg cursor-pointer hover:bg-background transition-colors data-[state=checked]:border-primary">
                 <input
                   type="radio"
-                  name="frequency"
-                  value="daily"
-                  checked={frequency === 'daily'}
-                  onChange={() => setFrequency('daily')}
+                  name="visibility"
+                  value="public"
+                  checked={visibility === 'public'}
+                  onChange={() => setVisibility('public')}
                   className="w-4 h-4 accent-primary"
                 />
-                <span className="text-text">Daily</span>
+                <div className="flex-1">
+                  <span className="text-text font-medium">Public Room</span>
+                  <p className="text-xs text-muted">Anyone with the room code can join immediately</p>
+                </div>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label className="flex items-center gap-3 p-3 border border-border rounded-lg cursor-pointer hover:bg-background transition-colors data-[state=checked]:border-primary">
                 <input
                   type="radio"
-                  name="frequency"
-                  value="weekly"
-                  checked={frequency === 'weekly'}
-                  onChange={() => setFrequency('weekly')}
+                  name="visibility"
+                  value="private"
+                  checked={visibility === 'private'}
+                  onChange={() => setVisibility('private')}
                   className="w-4 h-4 accent-primary"
                 />
-                <span className="text-text">Weekly</span>
+                <div className="flex-1">
+                  <span className="text-text font-medium">Private Room</span>
+                  <p className="text-xs text-muted">People need your approval to join</p>
+                </div>
               </label>
             </div>
           </div>
@@ -262,6 +376,9 @@ export function CreateRoom() {
               <div>
                 <h3 className="font-semibold text-text">{name || 'Room Name'}</h3>
                 <p className="text-sm text-muted line-clamp-1">{goal || 'Your daily goal'}</p>
+                <span className="text-xs text-muted mt-1 block">
+                  {visibility === 'private' ? '🔒 Private' : '🌐 Public'}
+                </span>
               </div>
             </div>
           </div>

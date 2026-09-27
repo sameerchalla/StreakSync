@@ -216,6 +216,7 @@ export function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['user-rooms'] })
       queryClient.invalidateQueries({ queryKey: ['user-room-streaks'] })
       queryClient.invalidateQueries({ queryKey: ['last7days-checkins'] })
+      queryClient.invalidateQueries({ queryKey: ['all-checkin-dates', user?.id] })
       queryClient.invalidateQueries({ queryKey: ['profile'] })
       toast.success('Checked in! Keep up the streak! 🔥')
     },

@@ -23,6 +23,8 @@ export interface Room {
   check_in_time: string | null
   streak_goal: number
   is_public: boolean
+  visibility: 'public' | 'private'  // NEW: primary visibility field
+  room_code: string  // NEW: unique room access code
   created_by: string
   current_room_streak: number
   max_room_streak: number
@@ -40,6 +42,19 @@ export interface RoomMember {
   joined_at: string
   is_active: boolean
   profile?: Profile
+}
+
+export interface RoomJoinRequest {
+  id: string
+  room_id: string
+  user_id: string
+  status: 'pending' | 'accepted' | 'rejected'
+  created_at: string
+  updated_at: string
+  responded_at: string | null
+  responded_by: string | null
+  room?: Room
+  requester?: Profile
 }
 
 export interface CheckIn {

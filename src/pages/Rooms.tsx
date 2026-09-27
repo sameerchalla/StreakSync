@@ -7,12 +7,17 @@ import {
   Search,
   Plus,
   Users,
-  Filter,
+
   Loader2,
   Lock,
+  KeyRound,
+  Check,
+  XCircle,
+  AlertCircle,
 } from 'lucide-react'
 import { getStreakFireEmoji, calculateStreak } from '../lib/streakUtils'
-import { clsx } from 'clsx'
+import { findRoomByCode, joinPublicRoom, requestJoinPrivateRoom, getMyJoinRequest } from '../lib/roomOperations'
+import { toast } from 'sonner'
 
 // Helper to format date as yyyy-MM-dd (local timezone)
 const formatYmd = (d: Date): string => {
@@ -22,20 +27,32 @@ const formatYmd = (d: Date): string => {
   return `${y}-${m}-${day}`
 }
 
+type JoinCodeState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'success'; room: any; isPrivate: boolean }
+  | { status: 'pending'; room: any }
+  | { status: 'already_member'; room: any }
+  | { status: 'already_pending'; room: any }
+  | { status: 'rejected'; room?: any }
+  | { status: 'error'; message: string }
+
 export function Rooms() {
   const user = useAuthStore((state) => state.user)
   const queryClient = useQueryClient()
   const [searchQuery, setSearchQuery] = useState('')
-  const [showMyRooms, setShowMyRooms] = useState(false)
+  const [activeView, setActiveView] = useState<'public' | 'my'>('public')
+  const [joinCode, setJoinCode] = useState('')
+  const [joinCodeState, setJoinCodeState] = useState<JoinCodeState>({ status: 'idle' })
 
-  // Fetch all public rooms (using view that includes member_count)
+  // Fetch all public rooms
   const { data: rooms, isLoading, error: roomsError } = useQuery({
-    queryKey: ['rooms', showMyRooms],
+    queryKey: ['rooms'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('rooms_with_stats')
         .select('*')
-        .eq('is_public', true)
+        .eq('visibility', 'public')
         .order('current_room_streak', { ascending: false })
 
       if (error) throw error
@@ -44,28 +61,55 @@ export function Rooms() {
     enabled: !!user,
   })
 
-  // Fetch user's joined room IDs
-  const { data: joinedRoomIds = [] } = useQuery({
-    queryKey: ['joined-rooms', user?.id],
+  // Fetch user's joined rooms with stats
+  const { data: myRooms = [] } = useQuery({
+    queryKey: ['my-rooms', user?.id],
     queryFn: async () => {
       if (!user) return []
-      const { data, error } = await supabase
+      // Get membership room IDs first
+      const { data: memberships, error: memErr } = await supabase
         .from('room_members')
         .select('room_id')
         .eq('user_id', user.id)
         .eq('is_active', true)
-
-      if (error) {
-        console.error('Joined rooms query error:', error)
+      if (memErr) {
+        console.error('My rooms membership error:', memErr)
         return []
       }
-      return data?.map((r) => r.room_id) || []
+      const ids = memberships?.map((m) => m.room_id) || []
+      if (ids.length === 0) return []
+      const { data, error } = await supabase
+        .from('rooms_with_stats')
+        .select('*')
+        .in('id', ids)
+        .order('current_room_streak', { ascending: false })
+      if (error) {
+        console.error('My rooms stats error:', error)
+        return []
+      }
+      return data || []
     },
     enabled: !!user,
-    staleTime: 1000 * 60, // Cache for 1 minute to reduce redundant requests
+    staleTime: 1000 * 60,
   })
 
-  // Fetch user's personal check-in counts per room (for "Your streak" badge)
+  // Derive joined room IDs for card flags
+  const joinedRoomIds = myRooms.map((r: any) => r.id)
+
+  // Filter public rooms by search
+  const filteredPublic = (rooms || []).filter((room: any) => {
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      return (
+        room.name.toLowerCase().includes(q) ||
+        (room.goal && room.goal.toLowerCase().includes(q)) ||
+        (room.description && room.description.toLowerCase().includes(q))
+      )
+    }
+    return true
+  })
+
+  // Fetch user's personal check-in counts per room
   const { data: userStreaks = {} } = useQuery({
     queryKey: ['user-room-streaks', user?.id],
     queryFn: async () => {
@@ -81,7 +125,6 @@ export function Rooms() {
         return {}
       }
 
-      // For each room, compute current streak
       const result: Record<string, number> = {}
       const byRoom: Record<string, Set<string>> = {}
       ;(data || []).forEach((c: any) => {
@@ -141,37 +184,234 @@ export function Rooms() {
     return calculateStreak(dates)
   }
 
-  // Join room mutation
-  const joinMutation = useMutation({
-    mutationFn: async (roomId: string) => {
-      const { error } = await supabase.from('room_members').insert({
-        user_id: user?.id,
-        room_id: roomId,
-      })
-      if (error) throw error
+  // Join room from card mutation
+  const cardJoinMutation = useMutation({
+    mutationFn: async (targetRoom: any) => {
+      if (!user) throw new Error('Not authenticated')
+      if (targetRoom.visibility === 'private' || targetRoom.is_public === false) {
+        await requestJoinPrivateRoom(targetRoom.id, user.id)
+        return { isPrivate: true, roomName: targetRoom.name }
+      } else {
+        await joinPublicRoom(targetRoom.id, user.id)
+        return { isPrivate: false, roomName: targetRoom.name }
+      }
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['rooms'] })
       queryClient.invalidateQueries({ queryKey: ['user-rooms'] })
       queryClient.invalidateQueries({ queryKey: ['joined-rooms'] })
       queryClient.invalidateQueries({ queryKey: ['user-room-streaks'] })
+      if (res.isPrivate) {
+        toast.success(`Join request sent for ${res.roomName}. Waiting for owner approval.`)
+      } else {
+        toast.success(`Joined ${res.roomName}!`)
+      }
+    },
+    onError: (err: any) => {
+      toast.error(err.message || 'Failed to join room')
     },
   })
 
-  // Filter rooms
-  const filteredRooms = (rooms || [])
-    .filter((room: any) => {
-      if (showMyRooms && !joinedRoomIds.includes(room.id)) return false
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase()
-        return (
-          room.name.toLowerCase().includes(query) ||
-          (room.goal && room.goal.toLowerCase().includes(query)) ||
-          (room.description && room.description.toLowerCase().includes(query))
-        )
+  // Join room by code mutation
+  const joinByCodeMutation = useMutation({
+    mutationFn: async () => {
+      if (!joinCode.trim() || !user) return null
+
+      const code = joinCode.trim().toUpperCase()
+      const room = await findRoomByCode(code)
+
+      if (!room) {
+        throw new Error('Room not found')
       }
-      return true
-    })
+
+      // Check if already a member
+      const { data: existingMember } = await supabase
+        .from('room_members')
+        .select('id')
+        .eq('room_id', room.id)
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .maybeSingle()
+
+      if (existingMember) {
+        return { status: 'already_member' as const, room }
+      }
+
+      // Check existing join request
+      const existingRequest = await getMyJoinRequest(room.id, user.id)
+      if (existingRequest) {
+        if (existingRequest.status === 'pending') {
+          return { status: 'already_pending' as const, room }
+        }
+        if (existingRequest.status === 'rejected') {
+          return { status: 'rejected' as const, room }
+        }
+        if (existingRequest.status === 'accepted') {
+          return { status: 'already_member' as const, room }
+        }
+      }
+
+      if (room.visibility === 'public') {
+        await joinPublicRoom(room.id, user.id)
+        return { status: 'success' as const, room, isPrivate: false }
+      } else {
+        await requestJoinPrivateRoom(room.id, user.id)
+        return { status: 'pending' as const, room }
+      }
+    },
+    onSuccess: (result) => {
+      if (!result) return
+      setJoinCodeState(result)
+      if (result.status === 'success') {
+        toast.success(`Joined ${result.room.name}!`)
+        queryClient.invalidateQueries({ queryKey: ['rooms'] })
+        queryClient.invalidateQueries({ queryKey: ['user-rooms'] })
+        queryClient.invalidateQueries({ queryKey: ['joined-rooms'] })
+        queryClient.invalidateQueries({ queryKey: ['user-room-streaks'] })
+      } else if (result.status === 'pending') {
+        toast.success('Join request sent. Waiting for owner approval.')
+      } else if (result.status === 'already_member') {
+        toast.info(`You're already a member of ${result.room.name}`)
+      } else if (result.status === 'already_pending') {
+        toast.info('Your join request is already pending')
+      } else if (result.status === 'rejected') {
+        toast.error('Your previous request was rejected. You may submit another request.')
+      }
+      setJoinCode('')
+    },
+    onError: (error: any) => {
+      setJoinCodeState({ status: 'error', message: error.message || 'Failed to join room' })
+    },
+  })
+
+  const handleJoinByCode = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!joinCode.trim()) return
+    setJoinCodeState({ status: 'loading' })
+    joinByCodeMutation.mutate()
+  }
+
+  // Reset state when input changes
+  const handleJoinCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setJoinCode(e.target.value)
+    if (joinCodeState.status !== 'idle' && joinCodeState.status !== 'loading') {
+      setJoinCodeState({ status: 'idle' })
+    }
+  }
+
+  // Filter public rooms by search (remove old filter logic, use filteredPublic)
+  // (filteredPublic defined above)
+
+  // Render join code status message
+  const renderJoinCodeStatus = () => {
+    switch (joinCodeState.status) {
+      case 'success':
+        return (
+          <div className="bg-success/10 border border-success/30 rounded-xl p-4 mt-4">
+            <div className="flex items-center gap-3 text-success">
+              <Check className="w-5 h-5 shrink-0" />
+              <div>
+                <p className="font-medium">Successfully joined!</p>
+                <p className="text-sm text-muted">
+                  {joinCodeState.isPrivate ? 'Welcome to the room!' : 'You are now a member.'}
+                </p>
+                <Link
+                  to={`/rooms/${joinCodeState.room.id}`}
+                  className="text-sm text-primary hover:underline mt-2 inline-block"
+                >
+                  Go to room
+                </Link>
+              </div>
+            </div>
+          </div>
+        )
+      case 'pending':
+        return (
+          <div className="bg-primary/10 border border-primary/30 rounded-xl p-4 mt-4">
+            <div className="flex items-center gap-3 text-primary">
+              <AlertCircle className="w-5 h-5 shrink-0" />
+              <div>
+                <p className="font-medium">Join request sent</p>
+                <p className="text-sm text-muted">
+                  The room owner needs to approve your request before you can access the room.
+                </p>
+                <Link
+                  to={`/rooms/${joinCodeState.room.id}`}
+                  className="text-sm text-primary hover:underline mt-2 inline-block"
+                >
+                  View request status
+                </Link>
+              </div>
+            </div>
+          </div>
+        )
+      case 'already_member':
+        return (
+          <div className="bg-primary/10 border border-primary/30 rounded-xl p-4 mt-4">
+            <div className="flex items-center gap-3 text-primary">
+              <Check className="w-5 h-5 shrink-0" />
+              <div>
+                <p className="font-medium">You're already a member</p>
+                <p className="text-sm text-muted">
+                  You already have access to this room.
+                </p>
+                <Link
+                  to={`/rooms/${joinCodeState.room.id}`}
+                  className="text-sm text-primary hover:underline mt-2 inline-block"
+                >
+                  Go to room
+                </Link>
+              </div>
+            </div>
+          </div>
+        )
+      case 'already_pending':
+        return (
+          <div className="bg-warning/10 border border-warning/30 rounded-xl p-4 mt-4">
+            <div className="flex items-center gap-3 text-warning">
+              <AlertCircle className="w-5 h-5 shrink-0" />
+              <div>
+                <p className="font-medium">Request already pending</p>
+                <p className="text-sm text-muted">
+                  Your join request is still being reviewed by the room owner.
+                </p>
+                <Link
+                  to={`/rooms/${joinCodeState.room.id}`}
+                  className="text-sm text-primary hover:underline mt-2 inline-block"
+                >
+                  View request status
+                </Link>
+              </div>
+            </div>
+          </div>
+        )
+      case 'rejected':
+        return (
+          <div className="bg-danger/10 border border-danger/30 rounded-xl p-4 mt-4">
+            <div className="flex items-center gap-3 text-danger">
+              <XCircle className="w-5 h-5 shrink-0" />
+              <div>
+                <p className="font-medium">Previous request rejected</p>
+                <p className="text-sm text-muted">
+                  Your previous join request was rejected. You may submit another request.
+                </p>
+              </div>
+            </div>
+          </div>
+        )
+      case 'error':
+        return (
+          <div className="bg-danger/10 border border-danger/30 rounded-xl p-4 mt-4">
+            <div className="flex items-center gap-3 text-danger">
+              <XCircle className="w-5 h-5 shrink-0" />
+              <p className="text-sm">{joinCodeState.message || "We couldn't find a room with that code."}</p>
+            </div>
+          </div>
+        )
+      default:
+        return null
+    }
+  }
 
   return (
     <div className="space-y-6 pb-20 md:pb-0">
@@ -190,7 +430,44 @@ export function Rooms() {
         </Link>
       </div>
 
-      {/* Search and Filters */}
+      {/* Join by Code Section */}
+      <div className="bg-surface rounded-xl border border-border p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <KeyRound className="w-5 h-5 text-primary" />
+          <h2 className="text-lg font-semibold text-text">Join by Room Code</h2>
+        </div>
+        <p className="text-sm text-muted mb-4">
+          Have a room code? Enter it below to join or request access.
+        </p>
+        <form onSubmit={handleJoinByCode} className="flex gap-3 max-w-md">
+          <div className="relative flex-1">
+            <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted" />
+            <input
+              type="text"
+              placeholder="Enter room code (e.g., A7K9Q2)"
+              value={joinCode}
+              onChange={handleJoinCodeChange}
+              className="w-full pl-10 pr-4 py-3 bg-background border border-border rounded-lg text-text placeholder:text-muted focus:outline-none focus:border-primary transition-colors uppercase font-mono"
+              maxLength={6}
+              disabled={joinCodeState.status === 'loading'}
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={joinByCodeMutation.isPending || !joinCode.trim()}
+            className="px-6 py-3 bg-gradient-accent text-white font-semibold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2"
+          >
+            {joinByCodeMutation.isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              'Join Room'
+            )}
+          </button>
+        </form>
+        {renderJoinCodeStatus()}
+      </div>
+
+      {/* Search */}
       <div className="flex flex-col sm:flex-row gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted" />
@@ -202,18 +479,6 @@ export function Rooms() {
             className="w-full pl-10 pr-4 py-3 bg-surface border border-border rounded-lg text-text placeholder:text-muted focus:outline-none focus:border-primary transition-colors"
           />
         </div>
-        <button
-          onClick={() => setShowMyRooms(!showMyRooms)}
-          className={clsx(
-            'flex items-center gap-2 px-4 py-3 rounded-lg font-medium transition-colors',
-            showMyRooms
-              ? 'bg-primary text-white'
-              : 'bg-surface border border-border text-muted hover:text-text'
-          )}
-        >
-          <Filter className="w-4 h-4" />
-          My Rooms
-        </button>
       </div>
 
       {/* Error message */}
@@ -225,45 +490,69 @@ export function Rooms() {
         </div>
       )}
 
-      {/* Rooms Grid */}
-      {isLoading ? (
-        <div className="flex justify-center py-12">
-          <Loader2 className="w-8 h-8 text-primary animate-spin" />
-        </div>
-      ) : filteredRooms.length === 0 ? (
-        <div className="bg-surface rounded-xl p-12 border border-border text-center">
-          <Users className="w-12 h-12 text-muted mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-text mb-2">
-            {showMyRooms ? "You haven't joined any rooms yet" : 'No rooms found'}
-          </h3>
-          <p className="text-muted mb-4">
-            {showMyRooms
-              ? 'Browse public rooms to find your community'
-              : 'Try a different search term'}
-          </p>
-          {showMyRooms && (
-            <button
-              onClick={() => setShowMyRooms(false)}
-              className="px-4 py-2 bg-primary text-white rounded-lg font-medium hover:bg-primary/90 transition-colors"
-            >
-              Browse All Rooms
-            </button>
+      {/* View Toggle Buttons */}
+      <div className="flex gap-3">
+        <button
+          onClick={() => setActiveView('public')}
+          className={`flex-1 px-4 py-3 rounded-lg font-medium transition-colors ${
+            activeView === 'public' ? 'bg-primary text-white' : 'bg-surface border border-border text-muted hover:text-text'
+          }`}
+        >
+          Public Rooms
+        </button>
+        <button
+          onClick={() => setActiveView('my')}
+          className={`flex-1 px-4 py-3 rounded-lg font-medium transition-colors ${
+            activeView === 'my' ? 'bg-primary text-white' : 'bg-surface border border-border text-muted hover:text-text'
+          }`}
+        >
+          My Rooms
+        </button>
+      </div>
+
+      {/* Active View Content */}
+      {activeView === 'public' ? (
+        <section>
+          {isLoading ? (
+            <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>
+          ) : filteredPublic.length === 0 ? (
+            <div className="bg-surface rounded-xl p-12 border border-border text-center"><Users className="w-12 h-12 text-muted mx-auto mb-4" /><h3 className="text-lg font-semibold text-text mb-2">No public rooms found</h3><p className="text-muted">Try a different search term.</p></div>
+          ) : (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredPublic.map((room: any) => (
+                <RoomCard
+                  key={room.id}
+                  room={room}
+                  onJoin={() => cardJoinMutation.mutate(room)}
+                  isJoining={cardJoinMutation.isPending}
+                  hasJoined={joinedRoomIds.includes(room.id)}
+                  userStreak={userStreaks[room.id] || 0}
+                  roomStreak={calculateRoomStreak(room.id)}
+                />
+              ))}
+            </div>
           )}
-        </div>
+        </section>
       ) : (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredRooms.map((room: any) => (
-            <RoomCard
-              key={room.id}
-              room={room}
-              onJoin={() => joinMutation.mutate(room.id)}
-              isJoining={joinMutation.isPending}
-              hasJoined={joinedRoomIds.includes(room.id)}
-              userStreak={userStreaks[room.id] || 0}
-              roomStreak={calculateRoomStreak(room.id)}
-            />
-          ))}
-        </div>
+        <section>
+          {myRooms.length === 0 ? (
+            <div className="bg-surface rounded-xl p-12 border border-border text-center"><Users className="w-12 h-12 text-muted mx-auto mb-4" /><h3 className="text-lg font-semibold text-text mb-2">You haven't joined any rooms yet</h3><p className="text-muted">Browse public rooms to find your community.</p></div>
+          ) : (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {myRooms.map((room: any) => (
+                <RoomCard
+                  key={room.id}
+                  room={room}
+                  onJoin={() => cardJoinMutation.mutate(room)}
+                  isJoining={cardJoinMutation.isPending}
+                  hasJoined={true}
+                  userStreak={userStreaks[room.id] || 0}
+                  roomStreak={calculateRoomStreak(room.id)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
       )}
     </div>
   )
@@ -285,6 +574,7 @@ function RoomCard({
   roomStreak: number
 }) {
   const progress = Math.min((roomStreak / room.streak_goal) * 100, 100)
+  const isPrivate = room.visibility === 'private' || room.is_public === false
 
   return (
     <div className="bg-surface rounded-xl border border-border overflow-hidden hover:border-primary/50 transition-all group">
@@ -310,7 +600,12 @@ function RoomCard({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <h3 className="font-semibold text-text truncate">{room.name}</h3>
-              {!room.is_public && <Lock className="w-4 h-4 text-muted shrink-0" />}
+              {isPrivate && (
+                <span className="flex items-center gap-1 px-2 py-0.5 bg-warning/20 text-warning text-xs rounded-full">
+                  <Lock className="w-3 h-3" />
+                  Private
+                </span>
+              )}
             </div>
             <p className="text-sm text-muted line-clamp-2 mt-1">
               {room.description || room.goal}
@@ -375,8 +670,10 @@ function RoomCard({
           >
             {isJoining ? (
               <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+            ) : isPrivate ? (
+              'Request to Join'
             ) : (
-              `Join Room`
+              'Join Room'
             )}
           </button>
         )}
