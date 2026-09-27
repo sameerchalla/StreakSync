@@ -316,3 +316,10 @@ When Supabase is not configured, the app displays **realistic demo data**:
 - Stats that look credible for hackathon demos
 
 This allows the app to be demoed immediately without backend setup.
+
+## Updates Applied
+
+- Sidebar header unified (expanded/collapsed); logo at top, text hides on collapse.
+- Habit mini-chart: 30-day window, dates on X-axis, current day last.
+- Light-theme visibility fix for `bg-gradient-accent` buttons/logo.
+- Room card: join button removed after membership via `my-rooms` invalidation.

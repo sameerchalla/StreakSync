@@ -150,3 +150,10 @@ streakSync/
 | Dates | date-fns |
 
 ---
+
+## Recent Updates
+
+- Sidebar header fixed for expanded/collapsed states; logo stays at top, text hides when collapsed.
+- Habit charts show past 30 days with current day at end.
+- Light-theme button/logo visibility fixed (`bg-gradient-accent` added).
+- Room join button hides after joining in public rooms tab.
